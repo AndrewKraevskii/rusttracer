@@ -248,37 +248,9 @@ impl App {
 }
 
 impl UniformState {
-    // Translating Rust structures to WGSL is always tricky and can prove
-    // incredibly difficult to remember all the rules by which WGSL
-    // lays out and formats structs in memory. It is also often extremely
-    // frustrating to debug when things don't go right.
-    //
-    // You may sometimes see structs translated to bytes through
-    // using `#[repr(C)]` on the struct so that the struct has a defined,
-    // guaranteed internal layout and then implementing bytemuck's POD
-    // trait so that one can preform a bitwise cast. There are issues with
-    // this approach though as C's struct layouts aren't always compatible
-    // with WGSL, such as when special WGSL types like vec's and mat's
-    // get involved that have special alignment rules and especially
-    // when the target buffer is going to be used in the uniform memory
-    // space.
-    //
-    // Here though, we use the encase crate which makes translating potentially
-    // complex Rust structs easy through combined use of the [`ShaderType`] trait
-    // / derive macro and the buffer structs which hold data formatted for WGSL
-    // in either the storage or uniform spaces.
     fn as_wgsl_bytes(&self) -> encase::internal::Result<Vec<u8>> {
         let mut buffer = encase::UniformBuffer::new(Vec::new());
         buffer.write(self)?;
         Ok(buffer.into_inner())
-    }
-
-    fn translate_view(&mut self, increments: i32, axis: usize) {
-        // self.cursor_pos[axis] += CAMERA_POS_INCREMENT_FACTOR * increments as f32 / self.zoom;
-    }
-
-    fn zoom(&mut self, amount: f32) {
-        // self.zoom += ZOOM_INCREMENT_FACTOR * amount * self.zoom.powf(1.02);
-        // self.zoom = self.zoom.max(1.1);
     }
 }

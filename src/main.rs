@@ -34,91 +34,17 @@ struct UniformState {
     apsect: f32, // w/h
 }
 
-struct App {
+struct DrawingContext {
     surface: Surface<'static>,
     window: Arc<Window>,
     config: SurfaceConfiguration,
-    state: UniformState,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    uniform_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    pipeline: wgpu::RenderPipeline,
+    adapter: wgpu::Adapter,
 }
 
-impl App {
-    async fn run(mut self: Self, event_loop: EventLoop<()>) -> Result<(), EventLoopError> {
-        event_loop.run(move |event, elwt| {
-            match event {
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => elwt.exit(),
-                Event::WindowEvent {
-                    event: WindowEvent::Resized(size),
-                    ..
-                } => {
-                    self.config.width = size.width;
-                    self.config.height = size.height;
-
-                    self.state.apsect = self.config.width as f32 / self.config.height as f32;
-                    self.surface.configure(&self.device, &self.config);
-                    self.window.request_redraw();
-                }
-                Event::WindowEvent {
-                    event: WindowEvent::RedrawRequested,
-                    ..
-                } => {
-                    self.window.request_redraw();
-                    let surface_texture =
-                        self.surface.get_current_texture().expect("To get texture");
-                    let mut encoder = self
-                        .device
-                        .create_command_encoder(&CommandEncoderDescriptor::default());
-                    let view = surface_texture
-                        .texture
-                        .create_view(&TextureViewDescriptor::default());
-
-                    // self.state.time = std::time::Instant::now()
-                    //     .duration_since(self.start_time)
-                    // .as_secs_f32();
-                    self.state.time = 0.0;
-                    self.queue.write_buffer(
-                        &self.uniform_buffer,
-                        0,
-                        &self.state.as_wgsl_bytes().expect(
-                            "Error in encase translating AppState \
-                    struct to WGSL bytes.",
-                        ),
-                    );
-                    {
-                        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                            label: None,
-                            color_attachments: &[Some(RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Clear(Color::BLACK),
-                                    store: wgpu::StoreOp::Store,
-                                },
-                            })],
-                            depth_stencil_attachment: None,
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                        });
-                        pass.set_pipeline(&self.pipeline);
-                        pass.set_bind_group(0, &self.bind_group, &[]);
-                        pass.draw(0..6, 0..1);
-                    }
-                    self.queue.submit(Some(encoder.finish()));
-                    surface_texture.present();
-                }
-                _ => (),
-            };
-        })
-    }
-
-    async fn init(window: Window) -> anyhow::Result<Self> {
+impl DrawingContext {
+    async fn new(window: Window) -> anyhow::Result<Self> {
         let window = Arc::new(window);
         // let start_time = std::time::Instant::now();
 
@@ -154,6 +80,120 @@ impl App {
                 None,
             )
             .await?;
+
+        debug!("Got device");
+
+        let config = surface.get_default_config(&adapter, width, height).unwrap();
+        surface.configure(&device, &config);
+        Ok(DrawingContext {
+            surface,
+            window,
+            config,
+            device,
+            queue,
+            adapter,
+        })
+    }
+}
+
+struct App {
+    drawing_context: DrawingContext,
+
+    state: UniformState,
+    uniform_buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl App {
+    async fn run(mut self: Self, event_loop: EventLoop<()>) -> Result<(), EventLoopError> {
+        event_loop.run(move |event, elwt| {
+            match event {
+                Event::WindowEvent {
+                    event: WindowEvent::CloseRequested,
+                    ..
+                } => elwt.exit(),
+                Event::WindowEvent {
+                    event: WindowEvent::Resized(size),
+                    ..
+                } => {
+                    self.drawing_context.config.width = size.width;
+                    self.drawing_context.config.height = size.height;
+
+                    self.state.apsect = self.drawing_context.config.width as f32
+                        / self.drawing_context.config.height as f32;
+                    self.drawing_context
+                        .surface
+                        .configure(&self.drawing_context.device, &self.drawing_context.config);
+                    self.drawing_context.window.request_redraw();
+                }
+                Event::WindowEvent {
+                    event: WindowEvent::RedrawRequested,
+                    ..
+                } => {
+                    self.drawing_context.window.request_redraw();
+                    let surface_texture = self
+                        .drawing_context
+                        .surface
+                        .get_current_texture()
+                        .expect("To get texture");
+                    let mut encoder = self
+                        .drawing_context
+                        .device
+                        .create_command_encoder(&CommandEncoderDescriptor::default());
+                    let view = surface_texture
+                        .texture
+                        .create_view(&TextureViewDescriptor::default());
+
+                    // self.state.time = std::time::Instant::now()
+                    //     .duration_since(self.start_time)
+                    // .as_secs_f32();
+                    self.state.time = 0.0;
+                    self.drawing_context.queue.write_buffer(
+                        &self.uniform_buffer,
+                        0,
+                        &self.state.as_wgsl_bytes().expect(
+                            "Error in encase translating AppState \
+                    struct to WGSL bytes.",
+                        ),
+                    );
+                    {
+                        let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                            label: None,
+                            color_attachments: &[Some(RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(Color::BLACK),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+                        pass.set_pipeline(&self.pipeline);
+                        pass.set_bind_group(0, &self.bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                    self.drawing_context.queue.submit(Some(encoder.finish()));
+                    surface_texture.present();
+                }
+                _ => (),
+            };
+        })
+    }
+
+    async fn init(window: Window) -> anyhow::Result<Self> {
+        let size = window.inner_size();
+        let width = size.width;
+        let height = size.height;
+
+        let context = DrawingContext::new(window).await?;
+        // let start_time = std::time::Instant::now();
+        let device = &context.device;
+        let surface = &context.surface;
+        let adapter = &context.adapter;
 
         debug!("Got device");
         let _buffer = device.create_buffer(&BufferDescriptor {
@@ -235,11 +275,7 @@ impl App {
 
         Ok(Self {
             state,
-            surface,
-            device,
-            queue,
-            config,
-            window,
+            drawing_context: context,
             uniform_buffer,
             bind_group,
             pipeline,
